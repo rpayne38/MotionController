@@ -1,6 +1,11 @@
 import carla
 import random
 import time
+import sys
+
+sys.path.append("/home/rpayne/MotionController/CARLA_0.9.15/PythonAPI/carla")
+
+from agents.navigation.global_route_planner import GlobalRoutePlanner
 
 nTicks = 5
 
@@ -38,7 +43,7 @@ def main():
         vehicle_blueprint.set_attribute("color", color)
 
     waypoints = world.get_map().generate_waypoints(distance=1.0)
-    waypoints = GetWayPoints(world, waypoints, road_id=9, life_time=20)
+    waypoints = GetWayPoints(world, waypoints, road_id=3, life_time=20)
 
     spawn_point = waypoints[0].transform
     spawn_point.location.z += 2.0
@@ -51,12 +56,21 @@ def main():
                             color=carla.Color(r=255, g=0, b=0), life_time=20,
                             persistent_lines=True)
     
+    time.sleep(1.0)
     
     for i in range(nTicks):
-        vehicle.apply_control(carla.VehicleControl(throttle=1.0))
+        # negative is left, positive is right
+        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=0.0))
 
-    # Wait 10 seconds and destroy the vehicle
-    time.sleep(10.0)
+        world_snapshot = world.wait_for_tick()
+        vehicle_snapshot = world_snapshot.find(vehicle.id)
+        if vehicle_snapshot:
+            print(vehicle_snapshot.get_velocity())
+        else:
+            print("No vehicle")
+
+    # Destroy the vehicle
+    time.sleep(3.0)
     vehicle.destroy()
 
 main()
