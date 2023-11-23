@@ -13,6 +13,7 @@ from agents.navigation.global_route_planner import GlobalRoutePlanner
 dt = 0.1
 nTicks = 1e6
 planResolution = 10
+targetSpeed = 25
 
 # CARLA uses the left-hand rule with Z as the up vector and y pointing North
 # N* uses the right-hand rule with Z as the up vector and y pointing North
@@ -91,12 +92,14 @@ def main():
     grp = GlobalRoutePlanner(map, planResolution)
     spawn_points = world.get_map().get_spawn_points()
 
-    a = carla.Location(spawn_points[342].location)
-    b = carla.Location(spawn_points[231].location)
-    c = carla.Location(spawn_points[253].location)
+    a = carla.Location(spawn_points[323].location)
+    b = carla.Location(spawn_points[18].location)
+    c = carla.Location(spawn_points[56].location)
+    d = carla.Location(spawn_points[157].location)
 
     waypoints = GeneratePlan(grp, a, b)
     waypoints.extend(GeneratePlan(grp, b, c))
+    waypoints.extend(GeneratePlan(grp, c, d))
     
     # Draw plan
     for waypoint in waypoints:
@@ -119,7 +122,7 @@ def main():
         plan.append(pt)
 
     # Setup Controller
-    controller = StanleyController.StanleyController(plan, 1.0, 0.6, 5.0, np.radians(70.0), 2.5)
+    controller = StanleyController.StanleyController(plan, 1.0, 0.6, targetSpeed, np.radians(70.0), 2.5)
 
     tick = 0
     while tick < nTicks:
@@ -132,16 +135,16 @@ def main():
         speed = vehicle_snapshot.get_velocity().length()
 
         # Update controller. Making sure to convert between left and right-hand rule
-        steerCmd, idx = controller.Update(-position.x, position.y, StanleyController.NormaliseAngle(np.radians(180.0 - yaw)), speed)
-        DrawTransform(world, waypoints[idx], carla.Color(r=255, g=0, b=0), dt)
+        steerCmd, throttleCmd, targetIdx = controller.Update(-position.x, position.y, StanleyController.NormaliseAngle(np.radians(180.0 - yaw)), speed)
+        DrawTransform(world, waypoints[targetIdx], carla.Color(r=255, g=0, b=0), dt)
 
         # Normalise commands and convert to left-hand rule
         steerCmd /= np.pi
         steerCmd *= -1
-        print(f"steer: {steerCmd} v: {speed} m/s")
+        print(f"steerCmd: {steerCmd:.2f} throttleCmd: {throttleCmd:.2f} currentSpeed: {speed:.2f} m/s", end="\r")
         
         # negative is left, positive is right
-        vehicle.apply_control(carla.VehicleControl(throttle=0.6, steer=steerCmd))
+        vehicle.apply_control(carla.VehicleControl(throttle=throttleCmd, steer=steerCmd))
 
         tick += 1
         time.sleep(dt)

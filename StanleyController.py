@@ -52,7 +52,7 @@ class StanleyController():
     def Update(self, x, y, yaw, velocity):
 
         # Calculate speed control
-        accel = self.__ProportionalController(self.targetSpeed, velocity)
+        throttleCmd = self.__ProportionalController(self.targetSpeed, velocity)
 
         # Calculate front axle position
         frontAxleX = x + self.length * 0.5 * np.cos(yaw)
@@ -65,7 +65,7 @@ class StanleyController():
         # Calcaulte the angle to steer towards, in the local frame
         steeringAngle = self.__CalcualteSteeringAngle(self.plan[self.targetIdx].dir, crossTrackErr, yaw, velocity)
 
-        return steeringAngle, self.targetIdx
+        return steeringAngle, throttleCmd ,self.targetIdx
 
     def __CalcualteSteeringAngle(self, pathHeading, crossTrackError, yaw, velocity):
         # Apply Stanley Control
@@ -98,4 +98,4 @@ class StanleyController():
         return localErr[1]
 
     def __ProportionalController(self, target, current):
-        return self.kp * (target - current)
+        return np.clip(self.kp * (target - current), -1.0, 1.0)
