@@ -2,23 +2,36 @@ import carla
 import random
 import time
 import sys
+import numpy as np
+import math
+import StanleyController
 
 sys.path.append("/home/rpayne/MotionController/CARLA_0.9.15/PythonAPI/carla")
 
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 
-nTicks = 5
+dt = 0.1
+nTicks = 1e6
+planResolution = 10
 
-def GetWayPoints(world, waypoints, road_id=None, life_time=50.0):
-    filtered_waypoints = []
-    for waypoint in waypoints:
-        if(waypoint.road_id == road_id and waypoint.lane_id < 0):
-            world.debug.draw_string(waypoint.transform.location, 'O', draw_shadow=False,
-                                        color=carla.Color(r=0, g=255, b=0), life_time=life_time,
-                                        persistent_lines=True)
-            filtered_waypoints.append(waypoint)
-        
-    return filtered_waypoints
+# CARLA uses the left-hand rule with Z as the up vector and y pointing North
+# N* uses the right-hand rule with Z as the up vector and y pointing North
+
+def ConvertAngle(angle):
+    # some angles are greater than 360 for some reason
+    while angle > 360:
+        angle -= 360
+
+    if angle > 180:
+        angle -= 180
+
+    return angle
+
+def DrawTransform(world, transform, colour, lifetime):
+    rads = math.radians(transform.rotation.yaw)
+    start = transform.location
+    end = start + carla.Location(math.cos(rads), math.sin(rads), 0.0)
+    world.debug.draw_arrow(start, end, 0.2, 0.2, color=colour, life_time=lifetime)
       
 def main():                                   
     # Connect to server
@@ -33,8 +46,16 @@ def main():
         world = client.load_world("Town04")
         map = world.get_map()
 
-    # Add a random vehicle
     blueprint_library = world.get_blueprint_library()
+
+    # delete all vehicles
+    world_snapshot = world.wait_for_tick()
+    actors = world.get_actors()
+    vehicles = actors.filter('vehicle.*')
+    for vehicle in vehicles:
+        vehicle.destroy()
+
+    # Add a random vehicle
     vehicle_blueprint = blueprint_library.find("vehicle.nissan.micra")
 
     # Give the vehicle a random colour
@@ -42,32 +63,65 @@ def main():
         color = random.choice(vehicle_blueprint.get_attribute("color").recommended_values)
         vehicle_blueprint.set_attribute("color", color)
 
-    waypoints = world.get_map().generate_waypoints(distance=1.0)
-    waypoints = GetWayPoints(world, waypoints, road_id=3, life_time=20)
+    # Setup path planner
+    grp = GlobalRoutePlanner(map, planResolution)
+    spawn_points = world.get_map().get_spawn_points()
+    a = carla.Location(spawn_points[50].location)
+    b = carla.Location(spawn_points[100].location)
+    waypoints = grp.trace_route(a, b)
 
-    spawn_point = waypoints[0].transform
+    # Process waypoints
+    for i, waypoint in enumerate(waypoints):
+        waypoints[i] = waypoint[0].transform
+    
+    # Draw plan
+    for waypoint in waypoints:
+        DrawTransform(world, waypoint, carla.Color(r=0, g=255, b=0), 100)
+
+    # Get vehicle spawn location
+    spawn_point = waypoints[1]
+    spawn_point.location.y -= 3.0
     spawn_point.location.z += 2.0
 
     # Spawn in the vehicle
     vehicle = world.spawn_actor(vehicle_blueprint, spawn_point)
-
-    target_waypoint = waypoints[-1]
-    world.debug.draw_string(target_waypoint.transform.location, 'O', draw_shadow=False,
-                            color=carla.Color(r=255, g=0, b=0), life_time=20,
-                            persistent_lines=True)
     
     time.sleep(1.0)
-    
-    for i in range(nTicks):
-        # negative is left, positive is right
-        vehicle.apply_control(carla.VehicleControl(throttle=1.0, steer=0.0))
 
+    # Convert from left-hand to right-hand rule
+    plan = []
+    for waypoint in waypoints:
+        pt = StanleyController.Waypoint(-waypoint.location.x, waypoint.location.y, StanleyController.NormaliseAngle(math.radians(180.0 - waypoint.rotation.yaw)))
+        plan.append(pt)
+
+    # Setup Controller
+    controller = StanleyController.StanleyController(plan, 1.0, 0.6, 5.0, np.radians(70.0), 2.5)
+
+    tick = 0
+    while tick < nTicks:
         world_snapshot = world.wait_for_tick()
         vehicle_snapshot = world_snapshot.find(vehicle.id)
-        if vehicle_snapshot:
-            print(vehicle_snapshot.get_velocity())
-        else:
-            print("No vehicle")
+
+        transform = vehicle_snapshot.get_transform()
+        position = transform.location
+        yaw = transform.rotation.yaw
+        speed = vehicle_snapshot.get_velocity().length()
+
+        # Update controller. Making sure to convert between left and right-hand rule
+        steerCmd, idx = controller.Update(-position.x, position.y, StanleyController.NormaliseAngle(np.radians(180.0 - yaw)), speed)
+        DrawTransform(world, waypoints[idx], carla.Color(r=255, g=0, b=0), dt)
+
+        # Normalise commands and convert to left-hand rule
+        steerCmd /= np.pi
+        steerCmd *= -1
+        print(f"steer: {steerCmd} v: {speed} m/s")
+        
+        # negative is left, positive is right
+        vehicle.apply_control(carla.VehicleControl(throttle=0.6, steer=steerCmd))
+
+        tick += 1
+        time.sleep(dt)
+
 
     # Destroy the vehicle
     time.sleep(3.0)
