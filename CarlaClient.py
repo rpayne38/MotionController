@@ -32,6 +32,30 @@ def DrawTransform(world, transform, colour, lifetime):
     start = transform.location
     end = start + carla.Location(math.cos(rads), math.sin(rads), 0.0)
     world.debug.draw_arrow(start, end, 0.2, 0.2, color=colour, life_time=lifetime)
+
+def DisplayClosestPtToSpectator(world, pts):
+    while True:
+        spectator = world.get_spectator()
+        spectatorPos = spectator.get_transform().location
+
+        idx = 0
+        minDist = 1e9
+        for i, pt in enumerate(pts):
+            dist = pt.location.distance(spectatorPos)
+            if dist < minDist:
+                idx = i
+                minDist = dist
+
+        DrawTransform(world, pts[idx], carla.Color(r=0, g=255, b=0), 1)
+        print(idx)
+
+
+def GeneratePlan(routePlanner, start, end):
+    waypoints = routePlanner.trace_route(start, end)
+    for i, waypoint in enumerate(waypoints):
+        waypoints[i] = waypoint[0].transform
+    
+    return waypoints
       
 def main():                                   
     # Connect to server
@@ -66,13 +90,13 @@ def main():
     # Setup path planner
     grp = GlobalRoutePlanner(map, planResolution)
     spawn_points = world.get_map().get_spawn_points()
-    a = carla.Location(spawn_points[50].location)
-    b = carla.Location(spawn_points[100].location)
-    waypoints = grp.trace_route(a, b)
 
-    # Process waypoints
-    for i, waypoint in enumerate(waypoints):
-        waypoints[i] = waypoint[0].transform
+    a = carla.Location(spawn_points[342].location)
+    b = carla.Location(spawn_points[231].location)
+    c = carla.Location(spawn_points[253].location)
+
+    waypoints = GeneratePlan(grp, a, b)
+    waypoints.extend(GeneratePlan(grp, b, c))
     
     # Draw plan
     for waypoint in waypoints:
