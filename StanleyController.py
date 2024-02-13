@@ -1,17 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from dataclasses import dataclass
+from Common import Waypoint
 
 ksoft = 1.0 # low speed gain
-
-@dataclass
-class Waypoint:
-    x : float
-    y : float
-    dir : float # about z, positive is North
-
-    def pos(self):
-        return np.array([self.x, self.y])
     
 def NormaliseAngle(angle):
     # normalise angle between -pi and pi

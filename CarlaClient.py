@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import math
 import StanleyController
+from Common import Waypoint
 
 sys.path.append("/home/rpayne/MotionController/CARLA_0.9.15/PythonAPI/carla")
 
@@ -13,7 +14,7 @@ from agents.navigation.global_route_planner import GlobalRoutePlanner
 dt = 0.1
 nTicks = 1e6
 planResolution = 10
-targetSpeed = 25
+targetSpeed = 10
 
 # CARLA uses the left-hand rule with Z as the up vector and y pointing North
 # N* uses the right-hand rule with Z as the up vector and y pointing North
@@ -92,14 +93,14 @@ def main():
     grp = GlobalRoutePlanner(map, planResolution)
     spawn_points = world.get_map().get_spawn_points()
 
-    a = carla.Location(spawn_points[323].location)
-    b = carla.Location(spawn_points[18].location)
-    c = carla.Location(spawn_points[56].location)
+    a = carla.Location(spawn_points[342].location)
+    b = carla.Location(spawn_points[231].location)
+    c = carla.Location(spawn_points[253].location)
     d = carla.Location(spawn_points[157].location)
 
     waypoints = GeneratePlan(grp, a, b)
     waypoints.extend(GeneratePlan(grp, b, c))
-    waypoints.extend(GeneratePlan(grp, c, d))
+    #waypoints.extend(GeneratePlan(grp, c, d))
     
     # Draw plan
     for waypoint in waypoints:
@@ -118,7 +119,7 @@ def main():
     # Convert from left-hand to right-hand rule
     plan = []
     for waypoint in waypoints:
-        pt = StanleyController.Waypoint(-waypoint.location.x, waypoint.location.y, StanleyController.NormaliseAngle(math.radians(180.0 - waypoint.rotation.yaw)))
+        pt = Waypoint(-waypoint.location.x, waypoint.location.y, targetSpeed, StanleyController.NormaliseAngle(math.radians(180.0 - waypoint.rotation.yaw)))
         plan.append(pt)
 
     # Setup Controller
