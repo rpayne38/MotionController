@@ -29,7 +29,7 @@ int main( )
         //Control deltarate;
                 
 
-        double L = 1.32;	  // vehicle wheel base
+        double L = 2.5;	  // vehicle wheel base
 
         // DEFINE A DIFFERENTIAL EQUATION:
         // -------------------------------
@@ -91,8 +91,8 @@ int main( )
         ocp.subjectTo( f );
         // control constraints
         ocp.subjectTo( -1.0 <= a <= 2.5 );
-        ocp.subjectTo( 0.0 <= v <= 20.0 );
-        ocp.subjectTo( -0.873 <= delta <= 0.873 );
+        ocp.subjectTo( 0.1 <= v <= 12.0 );
+        ocp.subjectTo( -0.8 <= delta <= 0.8 );
         //ocp.subjectTo( -M_PI/4 <= deltarate <= M_PI/4 );
  
         // obstacle contraints
@@ -108,11 +108,11 @@ int main( )
         //
         OCPexport mpc( ocp );
         
-        mpc.set(HESSIAN_APPROXIMATION, GAUSS_NEWTON);
+        //mpc.set(HESSIAN_APPROXIMATION, GAUSS_NEWTON);
         //mpc.set(DISCRETIZATION_TYPE, SINGLE_SHOOTING);        
         mpc.set(DISCRETIZATION_TYPE, MULTIPLE_SHOOTING);
-        //mpc.set(INTEGRATOR_TYPE, INT_RK4);
-        mpc.set(INTEGRATOR_TYPE, INT_IRK_RIIA3);
+        mpc.set(INTEGRATOR_TYPE, INT_RK4);
+        //mpc.set(INTEGRATOR_TYPE, INT_IRK_RIIA3);
         mpc.set(NUM_INTEGRATOR_STEPS, N * Ni);
         mpc.set(SPARSE_QP_SOLUTION, FULL_CONDENSING);
         //	mpc.set(SPARSE_QP_SOLUTION, CONDENSING);
@@ -121,17 +121,18 @@ int main( )
         //	mpc.set(MAX_NUM_QP_ITERATIONS, 20);
         mpc.set(HOTSTART_QP, YES);        
         //	mpc.set(SPARSE_QP_SOLUTION, SPARSE_SOLVER);        
-        //	mpc.set(LEVENBERG_MARQUARDT, 1.0e-10);
+        mpc.set(LEVENBERG_MARQUARDT, 1.0e-10);
         mpc.set(GENERATE_TEST_FILE, YES);
         mpc.set(GENERATE_MAKE_FILE, YES);
-        mpc.set(GENERATE_MATLAB_INTERFACE, YES);
+        mpc.set(GENERATE_MATLAB_INTERFACE, NO);
         //	mpc.set(USE_SINGLE_PRECISION, YES);
         mpc.set(CG_USE_VARIABLE_WEIGHTING_MATRIX, YES);
         //mpc.set( CG_HARDCODE_CONSTRAINT_VALUES, NO);
         //	mpc.set(CG_USE_OPENMP, YES);
         // NOTE: This is crucial for export of MHE!
 	      //mpc.set(SPARSE_QP_SOLUTION, CONDENSING);
-	      mpc.set(FIX_INITIAL_STATE, YES);
+        mpc.set(FIX_INITIAL_STATE, YES);
+        //mpc.set(USE_REALTIME_ITERATIONS, YES);
 
         if (mpc.exportCode( "simple_mpc_export" ) != SUCCESSFUL_RETURN)
                 exit( EXIT_FAILURE );
