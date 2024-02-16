@@ -14,16 +14,16 @@ except:
 from Common import Waypoint, State
 from Models import KinematicBicycle
 
-WHEEL_BASE = 1.32
-MAX_SPEED = 20.0
-MAX_STEERING_ANGLE = np.radians(50.0)
+WHEEL_BASE = 2.5
+MAX_SPEED = 12.0
+MAX_STEERING_ANGLE = 0.8
 TARGET_SPEED = 5.0
 
 TIMESTEP = 0.05
 MAX_TIMESTEPS = 2000
 PRED_HORIZON = 15
-MAX_ITER = 3
-U_CONVERGENCE = 2.0
+MAX_ITER = 5
+U_CONVERGENCE = 0.1
 
 NX = 4  # [x, y, v, yaw]
 NY = 4  # reference state variables
@@ -31,37 +31,28 @@ NYN = 4  # reference terminal state variables
 NU = 2  # [accel, delta]
 
 # mpc parameters
-Q = np.diag([1.0, 1.0, 0.5, 0.75])  # state cost matrix
+Q = np.diag([1.0, 1.0, 0.1, 0.8])  # state cost matrix
 Qf = Q  # state final matrix
 
 def get_nparray_from_matrix(x):
     return np.array(x).flatten()
 
-def waypointsToNumpy(waypoints : list[Waypoint]):
-    # Output format is [x0, y0, v0, yaw0], [x1, y1, v1, yaw1], ...
-    ret = np.zeros((len(waypoints), NY))
-    for i, waypoint in enumerate(waypoints):
-        ret[i][0] = waypoint.x
-        ret[i][1] = waypoint.y
-        ret[i][2] = waypoint.targetSpeed
-        ret[i][3] = waypoint.dir
-    
-    return ret
-
 class ModelPredictiveController():
-    def __init__(self, waypoints : list[Waypoint], model : KinematicBicycle, state : State):
+    def __init__(self, waypoints : list[Waypoint], model : KinematicBicycle):
         self.waypoints = waypoints
         self.model = model
-        self.state = state
 
-    def _predict(self, accel: list[float], steeringAngle: list[float]):
-        ret = [self.model.update(self.state, accel[0], steeringAngle[0], TIMESTEP)]
+        self.steeringCmds = np.zeros((PRED_HORIZON))
+        self.throttleCmds = np.zeros((PRED_HORIZON))
+
+    def _predict(self, accel: list[float], steeringAngle: list[float], state : State):
+        ret = [self.model.update(state, accel[0], steeringAngle[0], TIMESTEP)]
         for i in range(PRED_HORIZON):
             ret.append(self.model.update(ret[i], accel[i], steeringAngle[i], TIMESTEP))
 
         return ret
     
-    def _solve(self, xPred: list[State]):
+    def _solve(self, xPred: list[State], state):
         # see acado.c for parameter details
         # xPred = predicted state at each timestep
 
@@ -71,7 +62,7 @@ class ModelPredictiveController():
         Y = np.zeros((PRED_HORIZON, NY))        # reference state
         yN = np.zeros((1,NYN))                  # final reference state
 
-        nearestWaypointIdx, dist = self.nearestWaypoint()
+        nearestWaypointIdx, dist = self.nearestWaypoint(state)
 
         if (nearestWaypointIdx + PRED_HORIZON) > len(self.waypoints):
             return None, None, None, None
@@ -81,7 +72,7 @@ class ModelPredictiveController():
             X[t,:] = xPred[t].numpyArray()                                # predicted state
 
         X[-1:] = X[-2,:]
-        _x0[0,:] = self.state.numpyArray()
+        _x0[0,:] = state.numpyArray()
         yN[0,:] = Y[-1,:NYN]         # reference terminal state
 
         # acado.mpc(forceInit, doFeedback, x0, X, U, Y, yN, W, WN, verbose)
@@ -106,11 +97,13 @@ class ModelPredictiveController():
 
         return oa, odelta, State(ox, oy, ov, oyaw), nearestWaypointIdx
     
-    def nearestWaypoint(self):
+    def nearestWaypoint(self, state : State):
+        pos = np.array([state.x, state.y])
+
         minDist = float("inf")
         idx = len(self.waypoints) + 1
         for i, waypoint in enumerate(self.waypoints):
-            dist = math.dist([self.state.x, self.state.y], waypoint.pos())
+            dist = math.dist(pos, waypoint.pos())
             if dist < minDist:
                 minDist = dist
                 idx = i
@@ -118,17 +111,20 @@ class ModelPredictiveController():
         return idx, minDist
 
     
-    def tick(self, accel, steeringAngle):
+    def tick(self, state : State):
+
+        accel = self.throttleCmds
+        steeringAngle = self.steeringCmds
 
         for i in range(MAX_ITER):
             # Predict next states based on current steering angle and acceleration
-            predictedStates = self._predict(accel, steeringAngle)
+            predictedStates = self._predict(accel, steeringAngle, state)
 
             predictedAccel = np.copy(accel)
             predictedSteeringAngle = np.copy(steeringAngle)
                     
             # solve cost func to get new state
-            accel, steeringAngle, newState, targetWaypoint = self._solve(predictedStates)
+            accel, steeringAngle, newState, targetWaypoint = self._solve(predictedStates, state)
 
             if targetWaypoint is None:
                 return None, None, None
@@ -137,14 +133,12 @@ class ModelPredictiveController():
             if du <= U_CONVERGENCE:
                 break
 
-        steeringCmd = steeringAngle[0]
-        throttleCmd = accel[0]
+        self.steeringCmds = steeringAngle
+        self.throttleCmds = accel
 
-        # Update platform state with MPC Estimates
-        self.state = self.model.update(self.state, throttleCmd, steeringCmd, TIMESTEP)
         #print(f"X: {self.state.x} Y: {self.state.y} Speed: {self.state.speed} Yaw: {self.state.yaw}")
 
-        return throttleCmd, steeringCmd, targetWaypoint
+        return self.steeringCmds[0], self.throttleCmds[0], targetWaypoint
 
 def get_switch_back_course(targetSpeed, dl):
     ax = [0.0, 30.0, 6.0, 20.0, 35.0]
@@ -163,10 +157,10 @@ def get_switch_back_course(targetSpeed, dl):
 def main():
     waypoints = get_switch_back_course(TARGET_SPEED, TIMESTEP)
 
-    initialState = State(waypoints[0].x, waypoints[0].y, 0.1, 0.0)
+    state = State(waypoints[0].x, waypoints[0].y, 0.1, -1.57)
     model = KinematicBicycle(WHEEL_BASE, MAX_SPEED, MAX_STEERING_ANGLE)
 
-    nmpc = ModelPredictiveController(waypoints, model, initialState)
+    nmpc = ModelPredictiveController(waypoints, model)
 
     cx = np.zeros((len(waypoints), 1))
     cy = np.zeros((len(waypoints), 1))
@@ -174,25 +168,21 @@ def main():
         cx[i] = waypoints[i].x
         cy[i] = waypoints[i].y
 
-    x = np.array([initialState.x])
-    y = np.array([initialState.y])
-    speed = np.array([initialState.speed])
+    x = np.array([state.x])
+    y = np.array([state.y])
+    speed = np.array([state.speed])
     
     t = 0
-    accel = np.zeros((PRED_HORIZON))
-    steeringAngle = np.zeros((PRED_HORIZON))
-    
     while t < MAX_TIMESTEPS:
-        throttleCmd, steeringCmd, targetIdx = nmpc.tick(accel, steeringAngle)
+        steeringCmd, throttleCmd, targetIdx = nmpc.tick(state)
         if targetIdx is None:
             break
+        
+        state = model.update(state, throttleCmd, steeringCmd, TIMESTEP)
 
-        accel = [throttleCmd] * PRED_HORIZON
-        steeringAngle = [steeringCmd] * PRED_HORIZON
-
-        x = np.append(x,  nmpc.state.x)
-        y = np.append(y, nmpc.state.y)
-        speed = np.append(speed, nmpc.state.speed)
+        x = np.append(x,  state.x)
+        y = np.append(y, state.y)
+        speed = np.append(speed, state.speed)
 
         targetx = np.zeros((PRED_HORIZON, 1))
         targety = np.zeros((PRED_HORIZON, 1))
@@ -200,7 +190,7 @@ def main():
             targetx[i] = nmpc.waypoints[targetIdx + i].x
             targety[i] = nmpc.waypoints[targetIdx + i].y
 
-        print(t / MAX_TIMESTEPS * 100, end ='\r')
+        print(f"{(t / MAX_TIMESTEPS * 100):.1f}", end ='\r')
 
         t += 1
 
