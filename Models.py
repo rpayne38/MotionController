@@ -2,7 +2,7 @@ import numpy as np
 import math
 import copy
 
-from Common import State, pi_2_pi
+from Common import State, NormaliseAngle
 
 class KinematicBicycle():
     def __init__(self, wheelBase, maxSpeed , maxSteeringAngle):
@@ -20,7 +20,7 @@ class KinematicBicycle():
         newState.speed += accel * dt
         newState.yaw += (newState.speed * math.tan(steeringAngle) / self.wheelBase) * dt
 
-        newState.yaw = pi_2_pi(newState.yaw)
+        newState.yaw = NormaliseAngle(newState.yaw)
 
         #TODO(RP) Clip speed?
         

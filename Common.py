@@ -25,11 +25,12 @@ class State:
     def numpyArray(self):
         return np.array([self.x, self.y, self.speed, self.yaw])
     
-def pi_2_pi(angle):
-    while(angle > math.pi):
-        angle = angle - 2.0 * math.pi
+def NormaliseAngle(angle):
+    # normalise angle between -pi and pi
+    while angle > np.pi:
+        angle -= 2.0 * np.pi
 
-    while(angle < -math.pi):
-        angle = angle + 2.0 * math.pi
+    while angle < -np.pi:
+        angle += 2.0 * np.pi
 
     return angle

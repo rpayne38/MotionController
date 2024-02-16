@@ -4,30 +4,26 @@ import time
 import sys
 import numpy as np
 import math
-import StanleyController
-from Common import Waypoint
+
+import NMPC
+from Common import Waypoint, State, NormaliseAngle
+from Models import KinematicBicycle
 
 sys.path.append("/home/rpayne/MotionController/CARLA_0.9.15/PythonAPI/carla")
 
 from agents.navigation.global_route_planner import GlobalRoutePlanner
 
-dt = 0.1
-nTicks = 1e6
-planResolution = 10
-targetSpeed = 10
+DT = 0.05          # secs
+N_TICKS = 1e4
+PLAN_RES = 1.5      # metres
+TARGET_SPEED = 4.0    # m/s
+
+MAX_SPEED = 12.0
+MAX_STEERING_ANGLE = 0.8
+WHEEL_BASE = 2.5
 
 # CARLA uses the left-hand rule with Z as the up vector and y pointing North
 # N* uses the right-hand rule with Z as the up vector and y pointing North
-
-def ConvertAngle(angle):
-    # some angles are greater than 360 for some reason
-    while angle > 360:
-        angle -= 360
-
-    if angle > 180:
-        angle -= 180
-
-    return angle
 
 def DrawTransform(world, transform, colour, lifetime):
     rads = math.radians(transform.rotation.yaw)
@@ -58,6 +54,9 @@ def GeneratePlan(routePlanner, start, end):
         waypoints[i] = waypoint[0].transform
     
     return waypoints
+
+def ProportionalController(gain, error):
+        return np.clip(gain * error, 0.0, 1.0)
       
 def main():                                   
     # Connect to server
@@ -90,25 +89,27 @@ def main():
         vehicle_blueprint.set_attribute("color", color)
 
     # Setup path planner
-    grp = GlobalRoutePlanner(map, planResolution)
+    grp = GlobalRoutePlanner(map, PLAN_RES)
     spawn_points = world.get_map().get_spawn_points()
 
-    a = carla.Location(spawn_points[342].location)
-    b = carla.Location(spawn_points[231].location)
-    c = carla.Location(spawn_points[253].location)
-    d = carla.Location(spawn_points[157].location)
+    townA = carla.Location(spawn_points[342].location)
+    townB = carla.Location(spawn_points[231].location)
+    townC = carla.Location(spawn_points[253].location)
+    townD = carla.Location(spawn_points[157].location)
 
-    waypoints = GeneratePlan(grp, a, b)
-    waypoints.extend(GeneratePlan(grp, b, c))
+    motorwayA = carla.Location(spawn_points[50].location)
+    motorwayB = carla.Location(spawn_points[100].location)
+
+    waypoints = GeneratePlan(grp, townA, townB)
+    waypoints.extend(GeneratePlan(grp, townB, townC))
     #waypoints.extend(GeneratePlan(grp, c, d))
     
     # Draw plan
     for waypoint in waypoints:
-        DrawTransform(world, waypoint, carla.Color(r=0, g=255, b=0), 100)
+        DrawTransform(world, waypoint, carla.Color(r=0, g=255, b=0), 1000 / TARGET_SPEED)
 
     # Get vehicle spawn location
     spawn_point = waypoints[1]
-    spawn_point.location.y -= 3.0
     spawn_point.location.z += 2.0
 
     # Spawn in the vehicle
@@ -119,14 +120,17 @@ def main():
     # Convert from left-hand to right-hand rule
     plan = []
     for waypoint in waypoints:
-        pt = Waypoint(-waypoint.location.x, waypoint.location.y, targetSpeed, StanleyController.NormaliseAngle(math.radians(180.0 - waypoint.rotation.yaw)))
+        pt = Waypoint(-waypoint.location.x, waypoint.location.y, TARGET_SPEED, NormaliseAngle(math.radians(180.0 - waypoint.rotation.yaw)))
         plan.append(pt)
 
     # Setup Controller
-    controller = StanleyController.StanleyController(plan, 1.0, 0.6, targetSpeed, np.radians(70.0), 2.5)
+    model = KinematicBicycle(WHEEL_BASE, MAX_SPEED, MAX_STEERING_ANGLE)
+    controller = NMPC.ModelPredictiveController(plan, model)
 
     tick = 0
-    while tick < nTicks:
+    prevSpeed = 0.0
+    while tick < N_TICKS:
+        t0 = time.time()
         world_snapshot = world.wait_for_tick()
         vehicle_snapshot = world_snapshot.find(vehicle.id)
 
@@ -136,19 +140,30 @@ def main():
         speed = vehicle_snapshot.get_velocity().length()
 
         # Update controller. Making sure to convert between left and right-hand rule
-        steerCmd, throttleCmd, targetIdx = controller.Update(-position.x, position.y, StanleyController.NormaliseAngle(np.radians(180.0 - yaw)), speed)
-        DrawTransform(world, waypoints[targetIdx], carla.Color(r=255, g=0, b=0), dt)
+        state = State(-position.x, position.y, speed, NormaliseAngle(np.radians(180.0 - yaw)))
+        steerAngle, accel, targetIdx = controller.tick(state)
+
+        # Draw target waypoint
+        for i in range(NMPC.PRED_HORIZON):
+            DrawTransform(world, waypoints[targetIdx + i], carla.Color(r=255, g=0, b=0), DT)
 
         # Normalise commands and convert to left-hand rule
-        steerCmd /= np.pi
-        steerCmd *= -1
-        print(f"steerCmd: {steerCmd:.2f} throttleCmd: {throttleCmd:.2f} currentSpeed: {speed:.2f} m/s", end="\r")
-        
+        steerCmd = steerAngle * -1
+        steerCmd /= MAX_STEERING_ANGLE
+
+        throttleCmd = ProportionalController(0.4, accel - ((speed - prevSpeed) / DT))
+        prevSpeed = speed
+
         # negative is left, positive is right
-        vehicle.apply_control(carla.VehicleControl(throttle=throttleCmd, steer=steerCmd))
+        vehicle.apply_control(carla.VehicleControl(steer = steerCmd, throttle = throttleCmd))
 
         tick += 1
-        time.sleep(dt)
+
+        dur = time.time() - t0
+        if dur < DT:
+            time.sleep(DT - dur)
+
+        print(f"Steer: {steerAngle:.2f}\t Throttle: {throttleCmd:.2f}\t currentSpeed: {speed:.2f} m/s\t Rate: {1 / (time.time() - t0):.1f} Hz", end="\r")
 
 
     # Destroy the vehicle
