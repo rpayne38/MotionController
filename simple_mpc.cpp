@@ -92,7 +92,7 @@ int main( )
         // control constraints
         ocp.subjectTo( -1.0 <= a <= 2.5 );
         ocp.subjectTo( 0.1 <= v <= 12.0 );
-        ocp.subjectTo( -0.8 <= delta <= 0.8 );
+        ocp.subjectTo( -1.22173 <= delta <= 1.22173 );
         //ocp.subjectTo( -M_PI/4 <= deltarate <= M_PI/4 );
  
         // obstacle contraints
@@ -240,6 +240,3 @@ int main( )
 
         return EXIT_SUCCESS;
 }
-
-
-

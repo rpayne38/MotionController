@@ -15,11 +15,11 @@ from agents.navigation.global_route_planner import GlobalRoutePlanner
 
 DT = 0.05          # secs
 N_TICKS = 1e4
-PLAN_RES = 1.5      # metres
+PLAN_RES = 2.0     # metres
 TARGET_SPEED = 4.0    # m/s
 
 MAX_SPEED = 12.0
-MAX_STEERING_ANGLE = 0.8
+MAX_STEERING_ANGLE = np.radians(70.0)
 WHEEL_BASE = 2.5
 
 # CARLA uses the left-hand rule with Z as the up vector and y pointing North
