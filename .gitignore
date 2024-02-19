@@ -161,3 +161,11 @@ cython_debug/
 
 # CARLA
 /CARLA*
+/CubicSpline*
+
+# Acado
+/mpc_acado*
+model_predictive_control.sh
+
+# VSCode
+/.vscode*
